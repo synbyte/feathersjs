@@ -1,61 +1,40 @@
-import { assert, describe, it, beforeEach, afterEach } from 'vitest'
-import { Server } from 'http'
-import fetch from 'node-fetch'
-import { URL } from 'node:url'
+// For more information about this file see https://dove.feathersjs.com/guides/cli/app.test.html
+import assert from 'assert'
+import axios from 'axios'
+import type { Server } from 'http'
+import { app } from '../src/app'
 
-import { main } from '../api/app.js'
-
-const port = '' + 8998
-const getUrl = (pathname?: string) => {
-  const url = new URL('http://localhost')
-  url.hostname = 'localhost'
-  url.protocol = 'http'
-  url.port = port
-  url.pathname = (pathname as string) || ''
-  return url.toString()
-}
+const port = app.get('port')
+const appUrl = `http://${app.get('host')}:${port}`
 
 describe('Feathers application tests', () => {
   let server: Server
 
-  beforeEach(async () => {
-    console.log('STARTING TEST SERVER', port)
-    server = await (await main()).listen(port)
+  before(async () => {
+    server = await app.listen(port)
   })
 
-  afterEach(() => {
-    console.log('RUNNING AFTER EACH')
-    return new Promise((resolve, reject) => {
-      server.close((e) => (e ? reject(e) : resolve()))
-    })
+  after(async () => {
+    await app.teardown()
   })
 
   it('starts and shows the index page', async () => {
-    const url = getUrl()
-    const response = await fetch(url)
-    const body = await response.text()
-    assert.ok(body.indexOf('<html lang="en">') !== -1)
+    const { data } = await axios.get<string>(appUrl)
+
+    assert.ok(data.indexOf('<html lang="en">') !== -1)
   })
 
-  describe('404', function () {
-    it('shows a 404 HTML page', async () => {
-      const url = getUrl('path/to/nowhere')
-      const response = await fetch(url, {
-        headers: {
-          Accept: 'text/html'
-        }
+  it('shows a 404 JSON error', async () => {
+    try {
+      await axios.get(`${appUrl}/path/to/nowhere`, {
+        responseType: 'json'
       })
-
-      assert.equal(response.status, 404)
-      // assert.ok((await response.text()).indexOf('<html>') !== -1)
-    })
-
-    it('shows a 404 JSON error without stack trace', async () => {
-      const response = await fetch(getUrl('path/to/nowhere'))
-
-      assert.equal(response.status, 404)
-      assert.equal(response.statusText, 'Not Found')
-      assert.ok(response.url.indexOf('/path/to/nowhere') !== -1)
-    })
+      assert.fail('should never get here')
+    } catch (error: any) {
+      const { response } = error
+      assert.strictEqual(response?.status, 404)
+      assert.strictEqual(response?.data?.code, 404)
+      assert.strictEqual(response?.data?.name, 'NotFound')
+    }
   })
 })
